@@ -51,9 +51,10 @@ INPUT_IMAGE = config.get('input_image', 'C:/NIS_out_proc/img.tif')
 SYNC_FILE = config.get('sync_file', 'C:/NIS_out_proc/sync.txt')
 OUT_PARAMS = config.get('out_params', 'C:/NIS_out_proc/out_params.txt')
 model_path = config.get('model_path', '//izbkingston/towbin.data/shared/spsalmon/towbinlab_segmentation_database/models/chamber_segmentation/best_light.ckpt')
-backup_model_path = config.get('backup_model_path', '~/NIS_out_proc/model_backup/chamber_segmentation/best_light.ckpt')
+backup_model_path = config.get('backup_model_path', 'C:/NIS_out_proc/model_backup/chamber_segmentation/best_light.ckpt')
 
-backup_model_path = os.path.expanduser(backup_model_path)
+if not sys.platform.startswith("win"):
+    backup_model_path = os.path.expanduser(backup_model_path)
 
 def read_text(path):
     try:
