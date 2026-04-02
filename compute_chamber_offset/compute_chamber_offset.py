@@ -15,42 +15,45 @@ from towbintools.foundation.binary_image import get_biggest_object
 from skimage.measure import centroid
 import shutil
 import os
+import yaml
 import sys
+import argparse
 
-def get_local_path_prefix() -> str:
-    """Detect whether running in WSL or native Windows and return the appropriate path prefix."""
-    if sys.platform == "win32":
-        return "C:"
-    try:
-        with open("/proc/version", "r") as f:
-            if "microsoft" in f.read().lower():
-                return "/mnt/c"
-    except FileNotFoundError:
-        pass
-    raise RuntimeError("This script must be run on Windows or WSL.")
+def parse_arguments():
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(description="Compute chamber offset from image.")
+    parser.add_argument(
+        "-c", "--config",
+        type=str,
+        help="Path to configuration file"
+    )
+    return parser.parse_args()
 
-def get_cluster_path_prefix() -> str:
-    """Return the remote path prefix for model storage."""
-    if sys.platform == "win32":
-        return "//izbkingston/towbin.data"
-    try:
-        with open("/proc/version", "r") as f:
-            if "microsoft" in f.read().lower():
-                return "/mnt/towbin.data"
-    except FileNotFoundError:
-        pass
-    raise RuntimeError("This script must be run on Windows or WSL.")
+def load_config(config_path):
+    """Load configuration from YAML file."""
+    if config_path and Path(config_path).exists():
+        with open(config_path, 'r') as f:
+            return yaml.safe_load(f)
+    return {}
 
 SYNC_NOT_READY = "0"
 SYNC_READY = "1"
 SYNC_FINISHED = "2"
 SYNC_CANCEL = "3"
-PIXELSIZE = 0.2167
+POLL_INTERVAL = 0.2
 
-POLL_INTERVAL = 0.25
-INPUT_IMAGE = f'{get_local_path_prefix()}/NIS_out_proc/img.tif'
-SYNC_FILE = f'{get_local_path_prefix()}/NIS_out_proc/sync.txt'
-OUT_PARAMS = f'{get_local_path_prefix()}/NIS_out_proc/out_params.txt'
+args = parse_arguments()
+config = load_config(args.config)
+
+CHANNELS = config.get('channels', [0])
+PIXELSIZE = config.get('pixelsize', 0.2167)
+INPUT_IMAGE = config.get('input_image', 'C:/NIS_out_proc/img.tif')
+SYNC_FILE = config.get('sync_file', 'C:/NIS_out_proc/sync.txt')
+OUT_PARAMS = config.get('out_params', 'C:/NIS_out_proc/out_params.txt')
+model_path = config.get('model_path', '//izbkingston/towbin.data/shared/spsalmon/towbinlab_segmentation_database/models/chamber_segmentation/best_light.ckpt')
+backup_model_path = config.get('backup_model_path', '~/NIS_out_proc/model_backup/chamber_segmentation/best_light.ckpt')
+
+backup_model_path = os.path.expanduser(backup_model_path)
 
 def read_text(path):
     try:
@@ -69,8 +72,6 @@ def write_text(path, text):
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-model_path = f'{get_cluster_path_prefix()}/shared/spsalmon/towbinlab_segmentation_database/models/chamber_segmentation/best_light.ckpt'
-backup_model_path = os.path.expanduser('~/NIS_out_proc/model_backup/chamber_segmentation/best_light.ckpt')
 os.makedirs(os.path.dirname(backup_model_path), exist_ok=True)
 try:
     model = load_segmentation_model_from_checkpoint(model_path).to(device)
@@ -122,7 +123,7 @@ def save_output_params(path, offset):
     write_text(path, "\n".join(lines) + "\n")
 
 def process_once(input_image, out_params, pixelsize):
-    img = read_tiff_file(input_image, channels_to_keep=[0])
+    img = read_tiff_file(input_image, channels_to_keep=CHANNELS)
     mask = segment_chamber(img)
     offset = compute_offset(mask, pixelsize)
 
