@@ -13,7 +13,34 @@ from towbintools.foundation import image_handling
 from towbintools.deep_learning.utils.util import get_closest_upper_multiple
 from towbintools.foundation.binary_image import get_biggest_object
 from skimage.measure import centroid
-    
+import shutil
+import os
+import sys
+
+def get_local_path_prefix() -> str:
+    """Detect whether running in WSL or native Windows and return the appropriate path prefix."""
+    if sys.platform == "win32":
+        return "C:"
+    try:
+        with open("/proc/version", "r") as f:
+            if "microsoft" in f.read().lower():
+                return "/mnt/c"
+    except FileNotFoundError:
+        pass
+    raise RuntimeError("This script must be run on Windows or WSL.")
+
+def get_cluster_path_prefix() -> str:
+    """Return the remote path prefix for model storage."""
+    if sys.platform == "win32":
+        return "//izbkingston/towbin.data"
+    try:
+        with open("/proc/version", "r") as f:
+            if "microsoft" in f.read().lower():
+                return "/mnt/towbin.data"
+    except FileNotFoundError:
+        pass
+    raise RuntimeError("This script must be run on Windows or WSL.")
+
 SYNC_NOT_READY = "0"
 SYNC_READY = "1"
 SYNC_FINISHED = "2"
@@ -21,9 +48,9 @@ SYNC_CANCEL = "3"
 PIXELSIZE = 0.2167
 
 POLL_INTERVAL = 0.25
-INPUT_IMAGE = 'C:/NIS_out_proc/img.tif'
-SYNC_FILE = 'C:/NIS_out_proc/sync.txt'
-OUT_PARAMS = 'C:/NIS_out_proc/out_params.txt'
+INPUT_IMAGE = f'{get_local_path_prefix()}/NIS_out_proc/img.tif'
+SYNC_FILE = f'{get_local_path_prefix()}/NIS_out_proc/sync.txt'
+OUT_PARAMS = f'{get_local_path_prefix()}/NIS_out_proc/out_params.txt'
 
 def read_text(path):
     try:
@@ -41,11 +68,20 @@ def write_text(path, text):
         f.write(text)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model_path = '//izbkingston/towbin.data/shared/spsalmon/towbinlab_segmentation_database/models/chamber_segmentation/best_light.ckpt'
-model = load_segmentation_model_from_checkpoint(model_path).to(device)
+
+model_path = f'{get_cluster_path_prefix()}/shared/spsalmon/towbinlab_segmentation_database/models/chamber_segmentation/best_light.ckpt'
+backup_model_path = os.path.expanduser('~/NIS_out_proc/model_backup/chamber_segmentation/best_light.ckpt')
+os.makedirs(os.path.dirname(backup_model_path), exist_ok=True)
+try:
+    model = load_segmentation_model_from_checkpoint(model_path).to(device)
+    shutil.copy(model_path, backup_model_path)
+except Exception as e:
+    print(f"Failed to load model: {e} from remote storage")
+    print("Loading model from backup...")
+    model = load_segmentation_model_from_checkpoint(backup_model_path).to(device)
+
 model.eval()
 transform = get_prediction_augmentation_from_model(model)
-
 def segment_chamber(image):
     global model, transform
     with torch.no_grad():
