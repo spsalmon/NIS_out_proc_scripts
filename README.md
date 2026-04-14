@@ -29,7 +29,7 @@ git clone https://github.com/spsalmon/NIS_out_proc_scripts.git
 
 ```bash
 cd ~/NIS_out_proc_scripts
-bash setup.sh
+sudo bash setup.sh
 ```
 
 # Running a script
