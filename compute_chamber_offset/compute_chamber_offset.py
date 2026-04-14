@@ -73,6 +73,8 @@ def write_text(path, text):
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+print(f'Using device: {device}')
+
 os.makedirs(os.path.dirname(backup_model_path), exist_ok=True)
 try:
     model = load_segmentation_model_from_checkpoint(model_path).to(device)

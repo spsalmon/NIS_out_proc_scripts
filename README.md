@@ -14,12 +14,22 @@ To install Ubuntu in your session. To access WSL, run :
 wsl
 ```
 
+Or look for WSL in the Windows search bar.
+
 Then proceed with the [instructions for installing the pipeline on Linux](https://spsalmon.github.io/towbintools_pipeline/installation/#linux). 
 
 2. Clone this repository
 
 ```bash
+cd
 git clone https://github.com/spsalmon/NIS_out_proc_scripts.git
+```
+
+3. Run the setup script that will mount towbin.data permanently so you can access the cluster (for models, images, etc.)
+
+```bash
+cd ~/NIS_out_proc_scripts
+bash setup.sh
 ```
 
 # Running a script
