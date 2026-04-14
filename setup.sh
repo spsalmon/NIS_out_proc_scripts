@@ -2,8 +2,6 @@
 # Configures a permanent SMB mount for //izbkingston/towbin.data at /mnt/towbin.data
 # Must be run with sudo.
 
-set -euo pipefail
-
 # ── Constants ────────────────────────────────────────────────────────────────
 SHARE="//izbkingston/towbin.data"
 MOUNT_POINT="/mnt/towbin.data"
@@ -18,6 +16,7 @@ success() { echo "[OK]    $*"; }
 warn()    { echo "[WARN]  $*"; }
 error()   { echo "[ERROR] $*" >&2; exit 1; }
 
+# ── Require root ─────────────────────────────────────────────────────────────
 require_root() {
     if [[ $EUID -ne 0 ]]; then
         error "This script must be run as root. Please use: sudo $0"
@@ -26,7 +25,9 @@ require_root() {
 
 # ── Dependency check ─────────────────────────────────────────────────────────
 check_cifs_utils() {
-    if ! dpkg -s cifs-utils &>/dev/null; then
+    if dpkg -s cifs-utils &>/dev/null; then
+        success "cifs-utils is already installed."
+    else
         warn "cifs-utils is not installed."
         read -rp "Install it now? [Y/n]: " yn
         yn="${yn:-Y}"
@@ -37,8 +38,6 @@ check_cifs_utils() {
         else
             error "cifs-utils is required. Aborting."
         fi
-    else
-        success "cifs-utils is already installed."
     fi
 }
 
@@ -50,23 +49,27 @@ collect_credentials() {
     echo
 
     read -rp "  Username: " SMB_USER
-    [[ -z "$SMB_USER" ]] && error "Username cannot be empty."
+    if [[ -z "$SMB_USER" ]]; then
+        error "Username cannot be empty."
+    fi
 
     read -rsp "  Password: " SMB_PASS
-    echo  # newline after hidden input
-    [[ -z "$SMB_PASS" ]] && error "Password cannot be empty."
+    echo
+    if [[ -z "$SMB_PASS" ]]; then
+        error "Password cannot be empty."
+    fi
 
-    # Confirm password
     read -rsp "  Confirm password: " SMB_PASS2
     echo
-    [[ "$SMB_PASS" != "$SMB_PASS2" ]] && error "Passwords do not match. Please re-run the script."
+    if [[ "$SMB_PASS" != "$SMB_PASS2" ]]; then
+        error "Passwords do not match. Please re-run the script."
+    fi
 }
 
 # ── Write credentials file ───────────────────────────────────────────────────
 write_credentials() {
     mkdir -p "$(dirname "$CRED_FILE")"
 
-    # Write atomically via a temp file so the password is never briefly world-readable
     local tmp
     tmp=$(mktemp /etc/samba/.credentials_tmp.XXXXXX)
     chmod 600 "$tmp"
@@ -79,7 +82,6 @@ write_credentials() {
 
     success "Credentials saved to $CRED_FILE (mode 0600, root only)."
 
-    # Clear variables from memory as soon as possible
     unset SMB_PASS SMB_PASS2
 }
 
@@ -95,21 +97,17 @@ create_mount_point() {
 
 # ── /etc/fstab ───────────────────────────────────────────────────────────────
 add_fstab_entry() {
-    # Detect the calling user's UID/GID so mounted files are owned by them
-    # (SUDO_UID/SUDO_GID are set by sudo; fall back to 1000 if somehow absent)
     local uid="${SUDO_UID:-1000}"
     local gid="${SUDO_GID:-1000}"
 
     local fstab_line="${SHARE}  ${MOUNT_POINT}  cifs  credentials=${CRED_FILE},uid=${uid},gid=${gid},iocharset=utf8,vers=3.0,nofail,_netdev  0  0"
 
-    # Check if an entry for this mount point already exists
-    if grep -qP "^\S+\s+${MOUNT_POINT}\s+" "$FSTAB" 2>/dev/null; then
+    if grep -qP "^\S+\s+${MOUNT_POINT}\s+" "$FSTAB"; then
         warn "An fstab entry for $MOUNT_POINT already exists. Skipping."
         warn "If you need to update it, edit $FSTAB manually."
         return
     fi
 
-    # Back up fstab before touching it
     local backup="${FSTAB}.bak.$(date +%Y%m%d_%H%M%S)"
     cp "$FSTAB" "$backup"
     info "Backed up $FSTAB to $backup."
@@ -120,11 +118,9 @@ add_fstab_entry() {
 
 # ── /etc/wsl.conf ────────────────────────────────────────────────────────────
 configure_wsl_conf() {
-    # WSL2 does not run mount -a automatically unless we tell it to via wsl.conf
     if grep -q '^\[boot\]' "$WSL_CONF" 2>/dev/null; then
         if grep -q 'mount -a' "$WSL_CONF" 2>/dev/null; then
             info "$WSL_CONF already has 'mount -a' in [boot]. No changes needed."
-            return
         else
             warn "[boot] section exists in $WSL_CONF but has no 'mount -a'."
             warn "Please add the following line under [boot] manually:"
@@ -137,7 +133,7 @@ configure_wsl_conf() {
 # Auto-mount fstab entries (including SMB shares) when WSL starts
 command = mount -a
 EOF
-        success "Added [boot] command to $WSL_CONF so the share mounts automatically on WSL start."
+        success "Added [boot] command to $WSL_CONF so the share mounts on WSL start."
     fi
 }
 
@@ -183,7 +179,7 @@ main() {
     echo "  Mount point: $MOUNT_POINT"
     echo "  Credentials: $CRED_FILE (root-only)"
     echo
-    echo "  To re-run setup for a different user, just run this script again with sudo."
+    echo "  To update credentials, just run this script again with sudo."
     echo "=================================================="
 }
 
