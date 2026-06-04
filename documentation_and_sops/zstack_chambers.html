@@ -138,7 +138,7 @@
         
         </head>
         <body class="vscode-body vscode-light">
-            <span id="markdown-mermaid" aria-hidden="true" data-config="{&quot;darkModeTheme&quot;:&quot;dark&quot;,&quot;lightModeTheme&quot;:&quot;default&quot;,&quot;maxTextSize&quot;:50000,&quot;clickDrag&quot;:&quot;alt&quot;,&quot;showControls&quot;:&quot;onHoverOrFocus&quot;,&quot;resizable&quot;:true,&quot;maxHeight&quot;:&quot;&quot;}"></span>
+            <span id="markdown-mermaid" aria-hidden="true" data-config="{&quot;darkModeTheme&quot;:&quot;vscode&quot;,&quot;lightModeTheme&quot;:&quot;vscode&quot;,&quot;maxTextSize&quot;:50000,&quot;clickDrag&quot;:&quot;alt&quot;,&quot;showControls&quot;:&quot;onHoverOrFocus&quot;,&quot;resizable&quot;:true,&quot;maxHeight&quot;:&quot;&quot;}"></span>
 				<h1 id="running-a-z-stack-microchamber-experiment">Running a Z-stack microchamber experiment</h1>
 <p>This protocol describes the best way of running a Z-stack microchamber experiment. It uses GA3 to do autofocus and NIS Out Proc to automatically recenter each position using a CNN.</p>
 <p>If it's your first time, install WSL and all the tools by following the instructions given here : <a href="https://github.com/spsalmon/NIS_out_proc_scripts">https://github.com/spsalmon/NIS_out_proc_scripts</a></p>
@@ -160,9 +160,19 @@
 <p>Modify / double check the OCs selected for the Z-stacks.</p>
 </li>
 </ol>
+<h1 id="2-start-the-chamber-alignment">2. Start the chamber alignment</h1>
+<ol>
+<li>If you're not using the alignment, disable the block in your job and continue to the next steps.</li>
+<li>Start WSL by either by typing &quot;wsl&quot; in the windows search bar and clicking on the app, or by running &quot;wsl&quot; in a command prompt.</li>
+<li>Go to the NIS_out_proc_scripts directory and then in the directory of the script (e.g. cd ~/NIS_out_proc_scripts/compute_chamber_offset)</li>
+<li>Modify the config.yaml file, making sure that the channel you want to use, pixel size, etc ... are correct.</li>
+<li>Activate the towbintools micromamba environment by running &quot;micromamba activate towbintools&quot;</li>
+<li>Run the script by running &quot;python compute_chamber_offset.py -c config.yaml&quot;</li>
+<li>Wait for the script to say &quot;Ready&quot;, then continue.</li>
+</ol>
 <h2 id="2-verify-the-feedback-microscopy-part">2. Verify the feedback microscopy part</h2>
 <ol>
-<li>Run the job until the first snapshot and zstack are acquired. Open then inside of NIS and check if they look good.</li>
+<li>Run the job until the first snapshot and Z-stack are acquired. Open them inside of NIS and check if they look good.</li>
 </ol>
 <h3 id="ga3-autofocus">GA3 autofocus</h3>
 <ol>
@@ -193,15 +203,6 @@
 <li>Look at the graph, if you see a clear peak, then it's working. If not, you might need to change the channel used or the recipe.</li>
 </ol>
 <p><img src="file:////home/spsalmon/NIS_out_proc_scripts/documentation_and_sops/linechart.png" alt="alt text"></p>
-<h3 id="nis-out-proc-recentering">NIS Out Proc recentering</h3>
-<ol>
-<li>Start WSL</li>
-<li>Go to the NIS_out_proc_scripts directory and then in the directory of the script you want to launch</li>
-<li>Modify the config file (corresponding to your system, WSL in this case). Make sure that all the parameters are correct.</li>
-<li>Activate the towbintools micromamba environment</li>
-<li>Run the script</li>
-<li>Wait for the output to say &quot;Ready&quot;, then run your job.</li>
-</ol>
 <h2 id="3-last-job-verifications">3. Last job verifications</h2>
 <ol>
 <li>Make sure you select the right GA3 recipe</li>

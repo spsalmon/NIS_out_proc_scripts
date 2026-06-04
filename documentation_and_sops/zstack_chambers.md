@@ -16,7 +16,7 @@ If it's your first time, install WSL and all the tools by following the instruct
 
 5. Modify / double check the OCs selected for the Z-stacks.
 
-# 2. Start the chamber alignment
+## 2. Start the chamber alignment
 
 1. If you're not using the alignment, disable the block in your job and continue to the next steps.
 2. Start WSL by either by typing "wsl" in the windows search bar and clicking on the app, or by running "wsl" in a command prompt.
@@ -26,7 +26,7 @@ If it's your first time, install WSL and all the tools by following the instruct
 6. Run the script by running "python compute_chamber_offset.py -c config.yaml"
 7. Wait for the script to say "Ready", then continue. 
 
-## 2. Verify the feedback microscopy part
+## 3. Verify the feedback microscopy part
 
 1. Run the job until the first snapshot and Z-stack are acquired. Open them inside of NIS and check if they look good. 
 
@@ -56,7 +56,7 @@ If it's your first time, install WSL and all the tools by following the instruct
 
 ![alt text](linechart.png)
 
-## 3. Last job verifications
+## 4. Last job verifications
 
 1. Make sure you select the right GA3 recipe
 
