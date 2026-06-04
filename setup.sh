@@ -1,5 +1,7 @@
 #!/bin/bash
 # Configures a permanent SMB mount for //izbkingston/towbin.data at /mnt/towbin.data
+# using systemd automount, so the share mounts on first access and the WSL
+# startup "mount -a failed" race condition is avoided.
 # Must be run with sudo.
 
 # ── Constants ────────────────────────────────────────────────────────────────
@@ -7,7 +9,7 @@ SHARE="//izbkingston/towbin.data"
 MOUNT_POINT="/mnt/towbin.data"
 CRED_FILE="/etc/samba/credentials_towbin"
 FSTAB="/etc/fstab"
-FSTAB_MARKER="# towbin.data SMB mount"
+FSTAB_MARKER="# towbin.data SMB mount (systemd automount)"
 WSL_CONF="/etc/wsl.conf"
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -100,11 +102,45 @@ add_fstab_entry() {
     local uid="${SUDO_UID:-1000}"
     local gid="${SUDO_GID:-1000}"
 
-    local fstab_line="${SHARE}  ${MOUNT_POINT}  cifs  credentials=${CRED_FILE},uid=${uid},gid=${gid},iocharset=utf8,vers=3.0,nofail,_netdev  0  0"
+    # Key options:
+    #   noauto              -> WSL's startup "mount -a" skips this line (fixes the race)
+    #   x-systemd.automount -> systemd creates an automount unit; the share is mounted
+    #                          on first access (e.g. `ls /mnt/towbin.data`)
+    #   x-systemd.idle-timeout=600  -> unmount after 10 min idle (saves resources / handles
+    #                                  network drops gracefully; share remounts on next access)
+    #   x-systemd.mount-timeout=30  -> give the actual mount up to 30s to complete
+    #   _netdev,nofail      -> belt-and-braces; treat as network device, don't fail boot
+    local opts="credentials=${CRED_FILE},uid=${uid},gid=${gid},iocharset=utf8,vers=3.0,nofail,_netdev,noauto,x-systemd.automount,x-systemd.mount-timeout=30"
+    local fstab_line="${SHARE}  ${MOUNT_POINT}  cifs  ${opts}  0  0"
 
     if grep -qP "^\S+\s+${MOUNT_POINT}\s+" "$FSTAB"; then
-        warn "An fstab entry for $MOUNT_POINT already exists. Skipping."
-        warn "If you need to update it, edit $FSTAB manually."
+        # An entry exists — check whether it's already the systemd-automount version
+        if grep -P "^\S+\s+${MOUNT_POINT}\s+" "$FSTAB" | grep -q 'x-systemd.automount'; then
+            info "fstab entry for $MOUNT_POINT already uses systemd automount. No changes."
+            return
+        fi
+
+        warn "An older fstab entry for $MOUNT_POINT exists without systemd automount."
+        warn "This is the likely cause of the 'mount -a failed' message at WSL startup."
+        read -rp "Replace it with the improved entry? [Y/n]: " yn
+        yn="${yn:-Y}"
+        if [[ ! "$yn" =~ ^[Yy]$ ]]; then
+            warn "Keeping existing entry. You can edit $FSTAB manually."
+            return
+        fi
+
+        local backup="${FSTAB}.bak.$(date +%Y%m%d_%H%M%S)"
+        cp "$FSTAB" "$backup"
+        info "Backed up $FSTAB to $backup."
+
+        # Remove the old mount line (use | as sed delimiter since path contains /)
+        sed -i -E "\|^[^[:space:]]+[[:space:]]+${MOUNT_POINT}[[:space:]]+|d" "$FSTAB"
+        # Also remove the stale marker comment from the original script, if present
+        sed -i "\|^# towbin.data SMB mount$|d" "$FSTAB"
+        sed -i "\|^${FSTAB_MARKER}$|d" "$FSTAB"
+
+        printf '\n%s\n%s\n' "$FSTAB_MARKER" "$fstab_line" >> "$FSTAB"
+        success "Replaced fstab entry with systemd automount version (uid=$uid, gid=$gid)."
         return
     fi
 
@@ -117,23 +153,42 @@ add_fstab_entry() {
 }
 
 # ── /etc/wsl.conf ────────────────────────────────────────────────────────────
+# We need systemd enabled for x-systemd.automount to work.
 configure_wsl_conf() {
-    if grep -q '^\[boot\]' "$WSL_CONF" 2>/dev/null; then
-        if grep -q 'mount -a' "$WSL_CONF" 2>/dev/null; then
-            info "$WSL_CONF already has 'mount -a' in [boot]. No changes needed."
+    SYSTEMD_NEWLY_ENABLED=0
+
+    touch "$WSL_CONF"
+
+    if grep -qE '^\s*systemd\s*=\s*true' "$WSL_CONF"; then
+        info "systemd is already enabled in $WSL_CONF."
+    elif grep -q '^\[boot\]' "$WSL_CONF"; then
+        if grep -qE '^\s*systemd\s*=' "$WSL_CONF"; then
+            # Existing systemd= line set to something other than true — flip it
+            sed -i -E 's/^\s*systemd\s*=.*/systemd = true/' "$WSL_CONF"
+            success "Set 'systemd = true' in existing [boot] section of $WSL_CONF."
         else
-            warn "[boot] section exists in $WSL_CONF but has no 'mount -a'."
-            warn "Please add the following line under [boot] manually:"
-            warn "  command = mount -a"
+            # [boot] exists but no systemd line — insert one right after the header
+            sed -i '/^\[boot\]/a systemd = true' "$WSL_CONF"
+            success "Added 'systemd = true' under [boot] in $WSL_CONF."
         fi
+        SYSTEMD_NEWLY_ENABLED=1
     else
         cat >> "$WSL_CONF" <<'EOF'
 
 [boot]
-# Auto-mount fstab entries (including SMB shares) when WSL starts
-command = mount -a
+# Enable systemd so x-systemd.automount units (used by the towbin.data SMB
+# share in /etc/fstab) work. Required for on-demand mounting that avoids
+# the startup race where networking isn't ready when WSL runs `mount -a`.
+systemd = true
 EOF
-        success "Added [boot] command to $WSL_CONF so the share mounts on WSL start."
+        success "Added [boot] systemd=true to $WSL_CONF."
+        SYSTEMD_NEWLY_ENABLED=1
+    fi
+
+    # Heads-up if the older 'command = mount -a' line is still there.
+    if grep -q 'mount -a' "$WSL_CONF"; then
+        info "Note: '$WSL_CONF' still has 'command = mount -a' from a previous run."
+        info "It's now harmless (our entry is noauto), but you can remove it if you like."
     fi
 }
 
@@ -141,6 +196,14 @@ EOF
 test_mount() {
     echo
     info "Attempting to mount $SHARE now..."
+
+    # If systemd is already running, reload so it picks up the new fstab entry
+    # and registers the automount unit immediately.
+    if command -v systemctl &>/dev/null && systemctl is-system-running &>/dev/null; then
+        systemctl daemon-reload || true
+    fi
+
+    # Explicit mount works regardless of `noauto` (noauto only affects `mount -a`).
     if mount "$MOUNT_POINT" 2>&1; then
         success "Share mounted successfully at $MOUNT_POINT."
         echo
@@ -151,15 +214,16 @@ test_mount() {
         warn "  - The university network / VPN is not active"
         warn "  - The credentials are incorrect"
         warn "  - The server is temporarily unreachable"
-        warn "The fstab entry is still in place; the share will mount automatically"
-        warn "on the next WSL start (once the network is available)."
+        warn "  - systemd was just enabled and WSL hasn't been restarted yet"
+        warn "The fstab entry is in place; after 'wsl --shutdown' (from Windows)"
+        warn "and a fresh WSL start, the share will auto-mount on first access."
     fi
 }
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 main() {
     echo "=================================================="
-    echo "  SMB Mount Setup — towbin.data"
+    echo "  SMB Mount Setup — towbin.data (systemd automount)"
     echo "=================================================="
 
     require_root
@@ -178,6 +242,21 @@ main() {
     echo "  Share:       $SHARE"
     echo "  Mount point: $MOUNT_POINT"
     echo "  Credentials: $CRED_FILE (root-only)"
+    echo
+
+    if [[ "${SYSTEMD_NEWLY_ENABLED:-0}" -eq 1 ]]; then
+        echo "  IMPORTANT: systemd was just enabled in $WSL_CONF."
+        echo "  From a Windows PowerShell / CMD, run:"
+        echo
+        echo "      wsl --shutdown"
+        echo
+        echo "  Then re-open your WSL terminal. The startup 'mount -a failed'"
+        echo "  message will be gone, and the share will mount automatically the"
+        echo "  first time you access $MOUNT_POINT (e.g. 'ls $MOUNT_POINT')."
+    else
+        echo "  The share will mount automatically the first time you access"
+        echo "  $MOUNT_POINT (e.g. 'ls $MOUNT_POINT')."
+    fi
     echo
     echo "  To update credentials, just run this script again with sudo."
     echo "=================================================="
