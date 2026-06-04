@@ -214,7 +214,3 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
-
-**/*.yaml
-!**/config_windows.yaml
-!**/config_wsl.yaml

@@ -1,0 +1,7 @@
+channels: [0]
+pixelsize: 0.2167
+input_image: '/mnt/c/NIS_out_proc/img.tif'
+sync_file: '/mnt/c/NIS_out_proc/sync.txt'
+out_params: '/mnt/c/NIS_out_proc/out_params.txt'
+model_path: '/mnt/izbkingston/towbin.data/shared/spsalmon/towbinlab_segmentation_database/models/chamber_segmentation/best_light.ckpt'
+backup_model_path: '~/NIS_out_proc/model_backup/chamber_segmentation/best_light.ckpt'
